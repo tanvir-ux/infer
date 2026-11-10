@@ -883,8 +883,13 @@ let matchers : matcher list =
     &:: "getOutputStream" <>$ any_arg $--> Basic.skip |> with_non_disj
   ; +map_context_tenv (PatternMatch.Java.implements "java.net.Socket")
     &:: "getInputStream" <>$ any_arg $--> Basic.skip |> with_non_disj
+    (* [ServerSocket.accept] returns a fresh [Socket] the caller must close. [Basic.skip] kept
+     the listener tracked but never allocated that socket, so an unclosed accepted socket
+     was not reported. *)
   ; +map_context_tenv (PatternMatch.Java.implements "java.net.ServerSocket")
-    &:: "accept" <>$ any_arg $--> Basic.skip |> with_non_disj
+    &:: "accept"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException" "java.net.Socket"
+    |> with_non_disj
   ; +map_context_tenv
        (PatternMatch.Java.implements_one_of
           [ "java.io.ObjectInputStream"
