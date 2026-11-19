@@ -1067,6 +1067,14 @@ let matchers : matcher list =
     &:: "newBufferedWriter"
     <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException" "java.io.BufferedWriter"
     |> with_non_disj
+    (* [Files.newDirectoryStream] returns a fresh directory stream that holds an open directory
+       handle until [close]. It does not go through a modeled constructor, so the stream was never
+       tracked (same gap as the other [Files] factories, #2110). *)
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.file.Files")
+    &:: "newDirectoryStream"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException"
+            "java.nio.file.DirectoryStream"
+    |> with_non_disj
   ; +map_context_tenv (PatternMatch.Java.implements "java.sql.DriverManager")
     &:: "getConnection"
     <>--> Resource.allocate_returned ~exn_class_name:"java.sql.SQLException" "java.sql.Connection"

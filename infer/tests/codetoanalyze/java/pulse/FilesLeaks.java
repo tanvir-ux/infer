@@ -12,6 +12,7 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -73,5 +74,36 @@ public class FilesLeaks {
     try (BufferedWriter writer = Files.newBufferedWriter(path)) {
       writer.write(1);
     }
+  }
+
+  // DirectoryStream from Files.newDirectoryStream holds a directory handle until close().
+  // Left unknown, Pulse never allocates it, so not closing the stream is missed.
+
+  public void newDirectoryStreamNotClosedBad(Path dir) throws IOException {
+    Files.newDirectoryStream(dir);
+  }
+
+  public void newDirectoryStreamNotClosedAfterIteratorBad(Path dir) throws IOException {
+    DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+    stream.iterator();
+  }
+
+  public void newDirectoryStreamGlobNotClosedBad(Path dir) throws IOException {
+    Files.newDirectoryStream(dir, "*.java");
+  }
+
+  public void newDirectoryStreamClosedOk(Path dir) throws IOException {
+    DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+    stream.close();
+  }
+
+  public void newDirectoryStreamTryWithResourcesOk(Path dir) throws IOException {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+      stream.iterator();
+    }
+  }
+
+  public DirectoryStream<Path> newDirectoryStreamReturnedOk(Path dir) throws IOException {
+    return Files.newDirectoryStream(dir);
   }
 }
