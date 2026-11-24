@@ -1157,6 +1157,14 @@ let matchers : matcher list =
   ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SeekableByteChannel")
     &::+ (fun _ proc_name_str -> StringSet.mem proc_name_str Resource.byte_channel_usage_modeled)
     <>$ any_arg $+...$--> Basic.skip |> with_non_disj
+    (* [Files.newDirectoryStream] returns a fresh directory stream that holds an open directory
+       handle until [close]. It does not go through a modeled constructor, so the stream was never
+       tracked (same gap as the other [Files] factories, #2110). *)
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.file.Files")
+    &:: "newDirectoryStream"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException"
+            "java.nio.file.DirectoryStream"
+    |> with_non_disj
     (* [Files.lines], [Files.walk], [Files.find] and [Files.list] return a fresh stream without a
        modeled constructor, so the stream was never tracked (same gap as the other [Files]
        factories, #2110). [BaseStream.close] is [AutoCloseable], not [Closeable], so the existing

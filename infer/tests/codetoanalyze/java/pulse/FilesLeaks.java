@@ -16,6 +16,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -122,6 +123,37 @@ public class FilesLeaks {
       ByteBuffer buffer = ByteBuffer.allocate(8);
       channel.read(buffer);
     }
+  }
+
+  // DirectoryStream from Files.newDirectoryStream holds a directory handle until close().
+  // Left unknown, Pulse never allocates it, so not closing the stream is missed.
+
+  public void newDirectoryStreamNotClosedBad(Path dir) throws IOException {
+    Files.newDirectoryStream(dir);
+  }
+
+  public void newDirectoryStreamNotClosedAfterIteratorBad(Path dir) throws IOException {
+    DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+    stream.iterator();
+  }
+
+  public void newDirectoryStreamGlobNotClosedBad(Path dir) throws IOException {
+    Files.newDirectoryStream(dir, "*.java");
+  }
+
+  public void newDirectoryStreamClosedOk(Path dir) throws IOException {
+    DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+    stream.close();
+  }
+
+  public void newDirectoryStreamTryWithResourcesOk(Path dir) throws IOException {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+      stream.iterator();
+    }
+  }
+
+  public DirectoryStream<Path> newDirectoryStreamReturnedOk(Path dir) throws IOException {
+    return Files.newDirectoryStream(dir);
   }
 
   // Streams from Files.lines, walk, find and list own a file or directory handle until close().
