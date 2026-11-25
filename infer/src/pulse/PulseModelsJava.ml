@@ -425,6 +425,20 @@ module Resource = struct
 
   let byte_channel_usage_modeled = StringSet.of_list ["isOpen"]
 
+  (* [SocketChannel.open] returns a fresh channel that owns a socket until [close]. It does not go
+     through a modeled constructor, so the channel was never tracked (same gap as
+     [FileChannel.open]). [read], [write], [connect] and [finishConnect] do not close it. Left
+     unknown, any of them drops the channel, so a socket that is used and then abandoned is not
+     reported. *)
+  let socket_channel_usage_modeled_throws_IOException =
+    StringSet.of_list
+      ["bind"; "connect"; "finishConnect"; "read"; "shutdownInput"; "shutdownOutput"; "write"]
+
+
+  let socket_channel_usage_modeled =
+    StringSet.of_list ["isConnected"; "isConnectionPending"; "isOpen"]
+
+
   let use ~exn_class_name : model_no_non_disj =
     let exn = JavaClassName.from_string exn_class_name in
     fun model_data astate ->
@@ -1098,6 +1112,20 @@ let matchers : matcher list =
     |> with_non_disj
   ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SeekableByteChannel")
     &::+ (fun _ proc_name_str -> StringSet.mem proc_name_str Resource.byte_channel_usage_modeled)
+    <>$ any_arg $+...$--> Basic.skip |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SocketChannel")
+    &:: "open"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException"
+            "java.nio.channels.SocketChannel"
+    |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SocketChannel")
+    &::+ (fun _ proc_name_str ->
+    StringSet.mem proc_name_str Resource.socket_channel_usage_modeled_throws_IOException )
+    <>$ any_arg
+    $+...$--> Resource.use ~exn_class_name:"java.io.IOException"
+    |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SocketChannel")
+    &::+ (fun _ proc_name_str -> StringSet.mem proc_name_str Resource.socket_channel_usage_modeled)
     <>$ any_arg $+...$--> Basic.skip |> with_non_disj
     (* [Files.newDirectoryStream] returns a fresh directory stream that holds an open directory
        handle until [close]. It does not go through a modeled constructor, so the stream was never
