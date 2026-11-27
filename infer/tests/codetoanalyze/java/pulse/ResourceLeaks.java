@@ -36,12 +36,16 @@ import java.io.RandomAccessFile;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.StandardProtocolFamily;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.channels.FileChannel;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -849,6 +853,73 @@ public class ResourceLeaks {
     } finally {
       listener.close();
     }
+  }
+
+  // ServerSocketChannel.open returns a fresh channel that owns a native socket until close().
+  // The factory was not modeled, and bind/accept were unknown, so Pulse dropped the channel.
+
+  public void serverSocketChannelNotClosedBad() throws IOException {
+    ServerSocketChannel.open();
+  }
+
+  public void serverSocketChannelFamilyNotClosedBad() throws IOException {
+    ServerSocketChannel.open(StandardProtocolFamily.INET);
+  }
+
+  public void serverSocketChannelNotClosedAfterBindBad() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    listener.bind(new InetSocketAddress(0));
+  }
+
+  public void serverSocketChannelNotClosedAfterAcceptBad() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    SocketChannel client = listener.accept();
+    client.close();
+  }
+
+  // SocketChannel returned by ServerSocketChannel.accept() is itself a resource. Closing only
+  // the listener must still report the accepted channel.
+  public void serverSocketChannelAcceptNotClosedBad() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    try {
+      SocketChannel client = listener.accept();
+    } finally {
+      listener.close();
+    }
+  }
+
+  public void serverSocketChannelClosedAfterBindOk() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    try {
+      listener.bind(new InetSocketAddress(0));
+    } finally {
+      listener.close();
+    }
+  }
+
+  public void serverSocketChannelAcceptClosedOk() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    try {
+      SocketChannel client = listener.accept();
+      client.close();
+    } finally {
+      listener.close();
+    }
+  }
+
+  public void serverSocketChannelTryWithResourcesOk() throws IOException {
+    try (ServerSocketChannel listener = ServerSocketChannel.open()) {
+      listener.bind(new InetSocketAddress(0));
+    }
+  }
+
+  public void serverSocketChannelClosedViaSocketOk() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    listener.socket().close();
+  }
+
+  public ServerSocketChannel serverSocketChannelReturnedOk() throws IOException {
+    return ServerSocketChannel.open();
   }
 
   // HttpURLConnection

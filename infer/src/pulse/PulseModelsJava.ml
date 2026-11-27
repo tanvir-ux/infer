@@ -215,6 +215,22 @@ module Resource = struct
     PulseOperations.write_id ret_id channel astate
 
 
+  (* [ServerSocketChannel.socket] returns a [ServerSocket] view of the same native socket. Closing
+     either closes the other. Point [delegated_release] both ways so either [close] releases the
+     channel, without allocating a second resource. *)
+  let server_socket_view channel : model_no_non_disj =
+   fun {path; location; ret= ret_id, _} astate ->
+    let event = Hist.call_event path location "ServerSocketChannel.socket" in
+    let socket = (AbstractValue.mk_fresh (), Hist.single_event event) in
+    let<*> astate =
+      write_field path PulseOperations.ModeledField.delegated_release channel location socket astate
+    in
+    let<+> astate =
+      write_field path PulseOperations.ModeledField.delegated_release socket location channel astate
+    in
+    PulseOperations.write_id ret_id socket astate
+
+
   (* [Socket.getInputStream] and [Socket.getOutputStream] share the socket's lifetime: closing the
      stream closes the socket, and closing the socket closes the stream. Allocate the returned
      stream as a resource and point [delegated_release] both ways, so either [close] releases both.
@@ -424,6 +440,21 @@ module Resource = struct
 
 
   let byte_channel_usage_modeled = StringSet.of_list ["isOpen"]
+
+  (* [ServerSocketChannel.open] returns a fresh channel that owns a listening socket until [close].
+     It does not go through a modeled constructor, so the channel was never tracked (same gap as
+     [FileChannel.open]). [bind], [configureBlocking] and the accessors below do not close it and
+     may throw [IOException]. Left unknown, any of them drops the channel. [accept] is modeled
+     separately: the returned [SocketChannel] owns a new connection. [socket] returns a
+     [ServerSocket] view of the same native socket, not a second resource. *)
+  let server_socket_channel_usage_modeled_throws_IOException =
+    StringSet.of_list
+      ["bind"; "configureBlocking"; "getLocalAddress"; "getOption"; "register"; "setOption"]
+
+
+  let server_socket_channel_usage_modeled =
+    StringSet.of_list ["isBlocking"; "isOpen"; "isRegistered"; "supportedOptions"; "validOps"]
+
 
   (* [java.net.DatagramSocket] (and [MulticastSocket]) holds a native socket until [close]. [send],
      [receive], [connect] and [bind] do not close it and may throw [IOException]. Left unknown, any
@@ -1213,6 +1244,28 @@ let matchers : matcher list =
     |> with_non_disj
   ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.SeekableByteChannel")
     &::+ (fun _ proc_name_str -> StringSet.mem proc_name_str Resource.byte_channel_usage_modeled)
+    <>$ any_arg $+...$--> Basic.skip |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.ServerSocketChannel")
+    &:: "open"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException"
+            "java.nio.channels.ServerSocketChannel"
+    |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.ServerSocketChannel")
+    &:: "accept"
+    <>--> Resource.allocate_returned ~exn_class_name:"java.io.IOException"
+            "java.nio.channels.SocketChannel"
+    |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.ServerSocketChannel")
+    &:: "socket" <>$ capt_arg_payload $--> Resource.server_socket_view |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.ServerSocketChannel")
+    &::+ (fun _ proc_name_str ->
+    StringSet.mem proc_name_str Resource.server_socket_channel_usage_modeled_throws_IOException )
+    <>$ any_arg
+    $+...$--> Resource.use ~exn_class_name:"java.io.IOException"
+    |> with_non_disj
+  ; +map_context_tenv (PatternMatch.Java.implements "java.nio.channels.ServerSocketChannel")
+    &::+ (fun _ proc_name_str ->
+    StringSet.mem proc_name_str Resource.server_socket_channel_usage_modeled )
     <>$ any_arg $+...$--> Basic.skip |> with_non_disj
     (* [Files.newDirectoryStream] returns a fresh directory stream that holds an open directory
        handle until [close]. It does not go through a modeled constructor, so the stream was never
